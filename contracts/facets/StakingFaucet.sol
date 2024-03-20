@@ -14,10 +14,155 @@ error FAILED_TO_TRANSFER_REWARD();
 contract StakingFaucet {
     event Staked(address indexed account, uint256 indexed amount, uint256 at);
     event Unstaked(address indexed account, uint256 indexed amount, uint256 at);
+    event RewardClaimed(
+        address indexed account,
+        uint256 indexed amount,
+        uint256 at
+    );
 
-    constructor(address _stakingToken, address _rewardToken) {
-        stakingToken = IERC20(_stakingToken);
-        rewardToken = IERC20(_rewardToken);
+    function initStakeToken() external {
+        LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+        stakeToken.name = "Signor Token";
+        stakeToken.symbol = "STK";
+        stakeToken.totalSupply = 100000 * 10 ** 18;
+        stakeToken.balanceOf[msg.sender] = stakeToken.totalSupply;
+    }
+
+    // INITIALIZED REWARD TOKEN
+    function initRewardToken() external {
+        LibStaking.RewardToken storage rewardToken = LibStaking.appStorage();
+        rewardToken.name = "Emmy Token";
+        rewardToken.symbol = "ETK";
+        rewardToken.totalSupply = 100000 * 10 ** 18;
+    }
+
+    // constructor(address _stakingToken, address _rewardToken) {
+    //     stakingToken = IERC20(_stakingToken);
+    //     rewardToken = IERC20(_rewardToken);
+    // }
+
+    // INITIATE TOKEN TRANSFER
+    function transfer(
+        address recipient,
+        uint256 amount,
+        LibStaking.TokenType tokenType
+    ) public {
+        if (tokenType == LibStaking.TokenType.StakeToken) {
+            LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+            require(
+                stakeToken.balanceOf[msg.sender] >= amount,
+                "INSUFFICIENT_BALANCE"
+            );
+            stakeToken.balanceOf[msg.sender] -= amount;
+            stakeToken.balanceOf[recipient] += amount;
+        } else {
+            LibStaking.RewardToken storage rewardToken = LibStaking
+                .appStorage();
+            require(
+                rewardToken.balanceOf[msg.sender] >= amount,
+                "INSUFFICIENT_BALANCE"
+            );
+            rewardToken.balanceOf[msg.sender] -= amount;
+            rewardToken.balanceOf[recipient] += amount;
+        }
+    }
+
+    // GET ALLOWANCE
+    function getAllowance(
+        address owner,
+        address spender,
+        LibStaking.TokenType tokenType
+    ) public view returns (uint256) {
+        if (tokenType == LibAppStorage.TokenType.StakeToken) {
+            LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+            return stakeToken.allowance[owner][spender];
+        } else {
+            LibStaking.RewardToken storage rewardToken = LibStaking
+                .appStorage();
+            return rewardToken.allowance[owner][spender];
+        }
+    }
+
+    // INITIALIZED APPROVE TOKEN
+    function approve(
+        address spender,
+        uint256 amount,
+        LibStaking.TokenType tokenType
+    ) public {
+        if (tokenType == LibStaking.TokenType.StakeToken) {
+            LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+            stakeToken.allowance[msg.sender][spender] = amount;
+        } else {
+            LibStaking.RewardToken storage rewardToken = LibStaking
+                .appStorage();
+            rewardToken.allowance[msg.sender][spender] = amount;
+        }
+    }
+
+    // INITIALIZED TRANSFER FROM
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount,
+        LibStaking.TokenType tokenType
+    ) public {
+        if (tokenType == LibStaking.TokenType.StakeToken) {
+            LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+
+            require(
+                stakeToken.balanceOf[sender] >= amount,
+                "INSUFFICIENT_BALANCE"
+            );
+            require(
+                stakeToken.allowance[sender][recipient] >= amount,
+                "INSUFFICIENT_ALLOWANCE"
+            );
+            stakeToken.balanceOf[sender] -= amount;
+            stakeToken.balanceOf[recipient] += amount;
+            stakeToken.allowance[sender][recipient] -= amount;
+        } else {
+            LibStaking.RewardToken storage rewardToken = LibStaking
+                .appStorage();
+            require(
+                rewardToken.balanceOf[sender] >= amount,
+                "INSUFFICIENT_BALANCE"
+            );
+            require(
+                rewardToken.allowance[sender][recipient] >= amount,
+                "INSUFFICIENT_ALLOWANCE"
+            );
+            rewardToken.balanceOf[sender] -= amount;
+            rewardToken.balanceOf[recipient] += amount;
+            rewardToken.allowance[sender][recipient] -= amount;
+        }
+    }
+
+    // GET ACCOUNT TOKEN BALANCE
+    function balanceOf(
+        address account,
+        LibStaking.TokenType tokenType
+    ) public view returns (uint256) {
+        if (tokenType == LibStaking.TokenType.StakeToken) {
+            LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+            return stakeToken.balanceOf[account];
+        } else {
+            LibStaking.RewardToken storage rewardToken = LibStaking
+                .appStorage();
+            return rewardToken.balanceOf[account];
+        }
+    }
+
+    function getTotalSupply(
+        LibStaking.TokenType tokenType
+    ) public view returns (uint256) {
+        if (tokenType == LibStaking.TokenType.StakeToken) {
+            LibStaking.StakeToken storage stakeToken = LibStaking.appStorage();
+            return stakeToken.totalSupply;
+        } else {
+            LibStaking.RewardToken storage rewardToken = LibStaking
+                .appStorage();
+            return rewardToken.totalSupply;
+        }
     }
 
     function stake(uint256 amount) external {
@@ -95,6 +240,8 @@ contract StakingFaucet {
         if (!sent) {
             revert FAILED_TO_TRANSFER_REWARD();
         }
+
+        emit RewardClaimed(msg.sender, reward, block.timestamp);
     }
 
     function calculateReward(address user) public view returns (uint256) {
