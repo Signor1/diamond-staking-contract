@@ -1,8 +1,17 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity ^0.8.9;
 import "../interfaces/IERC20.sol";
+import "../libraries/LibStaking.sol";
 
-contract StakingContract {
+error ZERO_AMOUNT_NOT_ALLOWED();
+error INSUFFICIENT_TOKEN_BALANCE();
+error STAKING_TOKEN_TRANSFER_FAILED();
+error INVALID_UNSTAKE_AMOUNT();
+error FAILED_TO_RETURN_STAKED_TOKEN();
+error NO_REWARD_TO_CLAIM();
+error FAILED_TO_TRANSFER_REWARD();
+
+contract StakingFaucet {
     event Staked(address indexed account, uint256 indexed amount, uint256 at);
     event Unstaked(address indexed account, uint256 indexed amount, uint256 at);
 
@@ -12,62 +21,90 @@ contract StakingContract {
     }
 
     function stake(uint256 amount) external {
-        require(amount > 0, "Cannot stake 0");
+        LibStaking.StakeData storage stakeInfo = LibStaking.appStorage();
+
+        if (amount < 1) {
+            revert ZERO_AMOUNT_NOT_ALLOWED();
+        }
+
+        if (stakeInfo.stakeToken.balanceOf(msg.sender) < amount) {
+            revert INSUFFICIENT_TOKEN_BALANCE();
+        }
 
         // Transfer staking tokens from the user to the contract
-        bool sent = stakingToken.transferFrom(
+        bool sent = stakeInfo.stakeToken.transferFrom(
             msg.sender,
             address(this),
             amount
         );
-        require(sent, "Staking token transfer failed");
 
-        // If already staked, first update their unclaimed rewards before adding new stake
-        if (stakedAmounts[msg.sender] > 0) {
-            unclaimedRewards[msg.sender] += calculateReward(msg.sender);
-        } else {
-            stakingStartTime[msg.sender] = block.timestamp;
+        if (!sent) {
+            revert STAKING_TOKEN_TRANSFER_FAILED();
         }
 
-        stakedAmounts[msg.sender] += amount;
+        // If already staked, first update their unclaimed rewards before adding new stake
+        if (stakeInfo.stakedAmounts[msg.sender] > 0) {
+            stakeInfo.unclaimedRewards[msg.sender] += calculateReward(
+                msg.sender
+            );
+        } else {
+            stakeInfo.stakingStartTime[msg.sender] = block.timestamp;
+        }
+
+        stakeInfo.stakedAmounts[msg.sender] += amount;
 
         emit Staked(msg.sender, amount, block.timestamp);
     }
 
     function unstake(uint256 amount) external {
-        require(
-            amount > 0 && amount <= stakedAmounts[msg.sender],
-            "Invalid unstake amount"
-        );
+        LibStaking.StakeData storage stakeInfo = LibStaking.appStorage();
+
+        if (amount < 0 && amount > stakeInfo.stakedAmounts[msg.sender]) {
+            revert INVALID_UNSTAKE_AMOUNT();
+        }
 
         // Update unclaimed rewards before unstaking
-        unclaimedRewards[msg.sender] += calculateReward(msg.sender);
-        stakingStartTime[msg.sender] = block.timestamp;
+        stakeInfo.unclaimedRewards[msg.sender] += calculateReward(msg.sender);
+        stakeInfo.stakingStartTime[msg.sender] = block.timestamp;
 
-        stakedAmounts[msg.sender] -= amount;
-        bool sent = stakingToken.transfer(msg.sender, amount);
-        require(sent, "Failed to return staking tokens");
+        stakeInfo.stakedAmounts[msg.sender] -= amount;
+        bool sent = stakeInfo.stakingToken.transfer(msg.sender, amount);
+
+        if (!sent) {
+            revert FAILED_TO_RETURN_STAKED_TOKEN();
+        }
 
         emit Unstaked(msg.sender, amount, block.timestamp);
     }
 
     function claimRewards() external {
+        LibStaking.StakeData storage stakeInfo = LibStaking.appStorage();
+
         uint256 reward = calculateReward(msg.sender) +
-            unclaimedRewards[msg.sender];
-        require(reward > 0, "No rewards to claim");
+            stakeInfo.unclaimedRewards[msg.sender];
 
-        unclaimedRewards[msg.sender] = 0;
-        stakingStartTime[msg.sender] = block.timestamp;
+        if (reward < 1) {
+            revert NO_REWARD_TO_CLAIM();
+        }
 
-        bool sent = rewardToken.transfer(msg.sender, reward);
-        require(sent, "Failed to transfer rewards");
+        stakeInfo.unclaimedRewards[msg.sender] = 0;
+        stakeInfo.stakingStartTime[msg.sender] = block.timestamp;
+
+        bool sent = stakeInfo.rewardToken.transfer(msg.sender, reward);
+
+        if (!sent) {
+            revert FAILED_TO_TRANSFER_REWARD();
+        }
     }
 
     function calculateReward(address user) public view returns (uint256) {
-        uint256 stakedTimeInSeconds = block.timestamp - stakingStartTime[user];
-        uint256 stakedAmount = stakedAmounts[user];
-        uint256 reward = (stakedAmount * APY * stakedTimeInSeconds) /
-            SECONDS_IN_A_YEAR /
+        LibStaking.StakeData storage stakeInfo = LibStaking.appStorage();
+
+        uint256 stakedTimeInSeconds = block.timestamp -
+            stakeInfo.stakingStartTime[user];
+        uint256 stakedAmount = stakeInfo.stakedAmounts[user];
+        uint256 reward = (stakedAmount * LibStaking.APY * stakedTimeInSeconds) /
+            LibStaking.SECONDS_IN_YEAR /
             100;
         return reward;
     }
