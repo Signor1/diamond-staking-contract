@@ -172,15 +172,16 @@ contract StakingFaucet {
             revert ZERO_AMOUNT_NOT_ALLOWED();
         }
 
-        if (stakeInfo.stakeToken.balanceOf(msg.sender) < amount) {
+        if (balanceOf(msg.sender, LibStaking.TokenType.StakeToken) < amount) {
             revert INSUFFICIENT_TOKEN_BALANCE();
         }
 
         // Transfer staking tokens from the user to the contract
-        bool sent = stakeInfo.stakeToken.transferFrom(
+        bool sent = transferFrom(
             msg.sender,
             address(this),
-            amount
+            amount,
+            LibStaking.TokenType.StakeToken
         );
 
         if (!sent) {
@@ -213,7 +214,12 @@ contract StakingFaucet {
         stakeInfo.stakingStartTime[msg.sender] = block.timestamp;
 
         stakeInfo.stakedAmounts[msg.sender] -= amount;
-        bool sent = stakeInfo.stakingToken.transfer(msg.sender, amount);
+
+        bool sent = transfer(
+            msg.sender,
+            amount,
+            LibStaking.TokenType.StakeToken
+        );
 
         if (!sent) {
             revert FAILED_TO_RETURN_STAKED_TOKEN();
@@ -235,7 +241,11 @@ contract StakingFaucet {
         stakeInfo.unclaimedRewards[msg.sender] = 0;
         stakeInfo.stakingStartTime[msg.sender] = block.timestamp;
 
-        bool sent = stakeInfo.rewardToken.transfer(msg.sender, reward);
+        bool sent = transfer(
+            msg.sender,
+            reward,
+            LibStaking.TokenType.RewardToken
+        );
 
         if (!sent) {
             revert FAILED_TO_TRANSFER_REWARD();
